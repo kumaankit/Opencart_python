@@ -42,7 +42,6 @@ def test_checkout_as_registered_user(page,login_test_name,email,password , check
     productpage.cart_button()
     productpage.checkout_btn()
     shopping_cart.checkoutbutton()
-    checkout_page.new_address()
     checkout_page.set_First_Name(First_name)
     checkout_page.set_last_name(Last_name)
     checkout_page.set_companyName(Company)
@@ -98,7 +97,6 @@ def test_checkout_as_guest_user(page, checkout_billingdetail_test_name, product,
     checkout_page.cashondeliverycontinue_button()
     checkout_page.confirorderbutton()
     expect(checkout_page.orderplacemsg).to_be_visible()
-
 
 
 @pytest.mark.parametrize("checkout_billingdetail_test_name, product, First_name, Last_name, Company, Address, City, Post_Code", Checkout_registered_user)

@@ -1,0 +1,92 @@
+PYTEST COMMAND NOTES
+
+1. Run all configured tests sequentially:
+pytest
+
+2. Run one test file:
+pytest tests\test_loginpage.py
+
+3. Run one specific test function:
+pytest tests\test_loginpage.py::test_function_name
+
+4. Run one test method inside a class:
+pytest tests\test_loginpage.py::TestClassName::test_method_name
+
+5. Run tests whose names match a keyword:
+pytest -k "login"
+
+6. Show detailed test results:
+pytest -v
+
+7. Show print statements:
+pytest -s
+
+8. Stop after the first failure:
+pytest -x
+
+9. Stop after three failures:
+pytest --maxfail=3
+
+10. Run previously failed tests:
+pytest --lf
+
+11. List tests without executing them:
+pytest --collect-only
+
+12. Run sanity tests:
+pytest -m "sanity"
+
+13. Run regression tests:
+pytest -m "regression"
+
+14. Run tests with either marker:
+pytest -m "sanity or regression"
+
+15. Run sanity tests excluding regression:
+pytest -m "sanity and not regression"
+
+16. Show the browser window:
+pytest --headed
+
+17. Run using Firefox:
+pytest --browser=firefox
+
+18. Run using Edge (requires msedge support in conftest.py):
+pytest --browser=msedge
+
+19. Generate an HTML report (requires pytest-html):
+pytest --html=reports\myreport.html --self-contained-html
+
+20. Run with two parallel workers (requires pytest-xdist):
+pytest -n 2
+
+21. Retry failures twice (requires pytest-rerunfailures):
+pytest --reruns 2 --reruns-delay 2
+
+
+
+Activate the virtual environment (PowerShell):
+.\.venv\Scripts\Activate.ps1
+
+Deactivate the virtual environment:
+deactivate
+
+Install the Playwright Python library:
+python -m pip install playwright
+
+Install Playwright's browser binaries:
+python -m playwright install
+
+Install only Firefox:
+python -m playwright install firefox
+
+Install only Chromium:
+python -m playwright install chromium
+
+Install pytest:
+python -m pip install pytest
+
+Install the HTML reporting plugin:
+python -m pip install pytest-html
+
+pytest; Start-Process .\reports\myreport.html

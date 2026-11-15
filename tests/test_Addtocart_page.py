@@ -112,9 +112,11 @@ def test_add_product_with_invalid_quantity(page,login_test_name,email,password, 
     
     productpage.cart_button()
     
-    productpage.checkout_btn()
+    homepage.click_shopping_cart()
     
-    expect(Shoppingcart_page.cart_empty_msg).to_be_visible()
+    expect(Shoppingcart_page.cart_empty_msg).to_have_text(
+    "Your shopping cart is empty!"
+)
 
 
 

@@ -1,200 +1,197 @@
-import pytest
-import allure
+import re
 from pathlib import Path
+from uuid import uuid4
+
+
+import pytest
 from playwright.sync_api import sync_playwright
 
-# ========================================================================
-# PYTEST + PLAYWRIGHT TEST CONFIGURATION FILE
-# ========================================================================
-# This file provides:
-# 1. Command-line options (browser, base URL, video, screenshots, etc.)
-# 2. Hooks to track test results
-# 3. Fixtures for browser setup and teardown
-# 4. Screenshot, video, and trace attachments to Allure reports
-# ========================================================================
 
-
-# ----------------------------------------------------------------------------
-# STEP 1: ADD COMMAND LINE OPTIONS
-# ----------------------------------------------------------------------------
 def pytest_addoption(parser):
-    """
-    Adds command line options for test configuration.
-    You can override these when running pytest or store defaults in pytest.ini.
-    
-    """
-    parser.addoption("--browser", default="chromium", help="Browser: chromium, firefox, webkit")
-    parser.addoption("--headed", action="store_true", help="Run in headed (visible) mode")
-    parser.addoption("--base-url", default="https://tutorialsninja.com/demo/", help="Base URL for tests")
-    parser.addoption("--video", default="retain-on-failure", help="Record video: on, off, retain-on-failure")
-    parser.addoption("--screenshot", default="only-on-failure", help="Take screenshot: on, off, only-on-failure")
-    parser.addoption("--tracing", default="retain-on-failure", help="Tracing: on, off, retain-on-failure")
+    """Register options used in pytest.ini and terminal commands."""
+    parser.addoption(
+        "--browser",
+        default="chromium",
+        choices=["chromium", "chrome", "msedge", "firefox", "webkit"],
+        help="Browser to run tests",
+    )
+    parser.addoption(
+        "--headed",
+        action="store_true",
+        help="Show the browser window",
+    )
+    parser.addoption(
+        "--base-url",
+        default="https://tutorialsninja.com/demo/",
+        help="Application URL",
+    )
+    parser.addoption(
+        "--video",
+        default="retain-on-failure",
+        choices=["on", "off", "retain-on-failure"],
+        help="Video recording policy",
+    )
+    parser.addoption(
+        "--screenshot",
+        default="only-on-failure",
+        choices=["on", "off", "only-on-failure"],
+        help="Screenshot capture policy",
+    )
+    parser.addoption(
+        "--tracing",
+        default="retain-on-failure",
+        choices=["on", "off", "retain-on-failure"],
+        help="Playwright tracing policy",
+    )
 
 
-# ----------------------------------------------------------------------------
-# STEP 2: GET CONFIGURATION VALUE (CMDLINE OR pytest.ini)
-# ----------------------------------------------------------------------------
-def get_config_value(config, option_name):
-    """
-    Helper to read configuration values.
-    Tries to get from command line first, otherwise from pytest.ini.
-    Supports both string and boolean options.
-    """
-    # Try command-line first
-    cmd_value = config.getoption(option_name)
-    if cmd_value is not None:
-        return cmd_value
-
-    # Fallback to pytest.ini
-    if option_name == "headed":
-        ini_value = config.getini(option_name)
-        return ini_value.lower() == "true" if isinstance(ini_value, str) else ini_value
-    else:
-        return config.getini(option_name)
-
-
-# ----------------------------------------------------------------------------
-# STEP 3: HOOK TO TRACK TEST RESULTS (PASS/FAIL)
-# ----------------------------------------------------------------------------
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
-    """
-    Captures the test result (pass/fail/skip) after each test.
-    This is used later to decide whether to take screenshots or save traces.
-    """
+    """Make test outcomes available during fixture cleanup."""
     outcome = yield
     report = outcome.get_result()
     setattr(item, f"rep_{report.when}", report)
 
 
-# ----------------------------------------------------------------------------
-# STEP 4: FIXTURE 1 - BROWSER CONTEXT SETUP
-# ----------------------------------------------------------------------------
-@pytest.fixture(scope="function")
+@pytest.fixture
 def browser_context(request):
-    """
-    Creates and manages the Playwright browser context.
-    - Reads configuration (browser, headed mode, video settings)
-    - Starts the Playwright browser
-    - Enables video recording if configured
-    - Cleans up automatically after each test
-    """
-    # Read configuration values
-    browser_name = get_config_value(request.config, "browser")
-    headed_flag = get_config_value(request.config, "headed")
-    video_option = get_config_value(request.config, "video")
+    """Manage the browser, diagnostic artifacts, and cleanup."""
+    config = request.config
 
-    print(f"[OK] Starting browser: {browser_name}")
-    print(f"[OK] Headless mode: {not headed_flag} (headed={headed_flag})")
+    browser_name = config.getoption("browser")
+    headed = config.getoption("headed")
+    video_mode = config.getoption("video")
+    screenshot_mode = config.getoption("screenshot")
+    tracing_mode = config.getoption("tracing")
 
-    # Start Playwright
-    playwright = sync_playwright().start()
+    safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", request.node.name)[:80]
+    artifact_name = f"{safe_name}_{uuid4().hex}"
 
-    # Launch the specified browser
-    if browser_name.lower() == "chromium":
-        browser = playwright.chromium.launch(channel="chrome",headless=not headed_flag)
-    elif browser_name.lower() == "firefox":
-        browser = playwright.firefox.launch(headless=not headed_flag)
-    elif browser_name.lower() == "webkit":
-        browser = playwright.webkit.launch(headless=not headed_flag)
-    else:
-        raise ValueError(f"[FAIL] Unsupported browser: {browser_name}")
+    reports_dir = Path(config.rootpath) / "reports"
+    videos = []
+    tracing_started = False
 
-    # Create a browser context (optionally with video recording)
-    if video_option in ["on", "retain-on-failure"]:
-        context = browser.new_context(record_video_dir="reports/videos")
-    else:
-        context = browser.new_context()
+    def track_video(new_page):
+        if new_page.video is not None:
+            videos.append(new_page.video)
 
-    # Yield the context for use in tests
-    yield context
+    with sync_playwright() as playwright:
+        if browser_name in ("chromium", "chrome", "msedge"):
+            channel = {
+                "chromium": None,
+                "chrome": "chrome",
+                "msedge": "msedge",
+            }[browser_name]
 
-    # Clean up after the test
-    print("[CLEANUP] Closing browser context and stopping Playwright...")
-    context.close()
-    browser.close()
-    playwright.stop()
-
-
-# ----------------------------------------------------------------------------
-# STEP 5: FIXTURE 2 - PAGE CREATION AND TEST ARTIFACT MANAGEMENT
-# ----------------------------------------------------------------------------
-@pytest.fixture(scope="function")
-def page(request, browser_context):
-    """
-    Creates a new browser page for each test.
-    - Navigates to the base URL
-    - Starts tracing (if enabled)
-    - Captures screenshots, traces, and videos for failed tests
-    - Attaches all artifacts to Allure report
-    """
-    # Read test configuration
-    base_url = get_config_value(request.config, "base_url")
-    screenshot_option = get_config_value(request.config, "screenshot")
-    tracing_option = get_config_value(request.config, "tracing")
-    video_option = get_config_value(request.config, "video")
-
-    print(f"[INFO] Navigating to: {base_url}")
-
-    # Start tracing if enabled
-    if tracing_option in ["on", "retain-on-failure"]:
-        print("[TRACE] Tracing enabled - capturing screenshots and actions")
-        browser_context.tracing.start(screenshots=True, snapshots=True, sources=True)
-
-    # Create and navigate to base URL
-    page = browser_context.new_page()
-    page.goto(base_url)
-
-    # Yield the page to the test
-    yield page
-
-    # ------------------------------------------------------------------------
-    # After the test: manage artifacts (screenshots, videos, traces)
-    # ------------------------------------------------------------------------
-    test_name = request.node.name
-    test_failed = hasattr(request.node, "rep_call") and request.node.rep_call.failed
-
-    print(f"[RESULT] Test '{test_name}' result: {'[FAIL]' if test_failed else '[PASS]'}")
-
-    # Save and attach trace
-    if tracing_option in ["on", "retain-on-failure"]:
-        trace_path = f"reports/traces/{test_name}_trace.zip"
-        browser_context.tracing.stop(path=trace_path)
-        print(f"[SAVE] Trace saved: {trace_path}")
-
-        # Attach trace to Allure report if test failed
-        # Currently ZIP file is not supported to attach in Allure reports
-        # if test_failed:
-        #     allure.attach.file(
-        #         trace_path,
-        #         name=f"{test_name}_trace",
-        #         attachment_type=allure.attachment_type.ZIP
-        #     )
-        #     print("[ATTACH] Trace attached to Allure report")
-
-    # Take screenshot if test failed
-    
-    if test_failed and screenshot_option in ["on", "only-on-failure"]:
-        screenshot_path = f"reports/screenshots/{test_name}.png"
-        page.screenshot(path=screenshot_path)
-        print(f"[SAVE] Screenshot saved: {screenshot_path}")
-
-        # Attach to Allure report
-        allure.attach.file(
-            screenshot_path,
-            name=f"{test_name}_screenshot",
-            attachment_type=allure.attachment_type.PNG
-        )
-        print("[ATTACH] Screenshot attached to Allure report")
-
-    # Attach video if available and test failed
-   
-    if test_failed and video_option in ["on", "retain-on-failure"]:
-        video_path = page.video.path() if page.video else None
-        if video_path and Path(video_path).exists():
-            allure.attach.file(
-                video_path,
-                name=f"{test_name}_video",
-                attachment_type=allure.attachment_type.WEBM
+            browser = playwright.chromium.launch(
+                channel=channel,
+                headless=not headed,
             )
-            print("[ATTACH] Video attached to Allure report")
+        elif browser_name == "firefox":
+            browser = playwright.firefox.launch(headless=not headed)
+        else:
+            browser = playwright.webkit.launch(headless=not headed)
+
+        try:
+            video_dir = None
+            if video_mode != "off":
+                video_dir = reports_dir / "videos"
+                video_dir.mkdir(parents=True, exist_ok=True)
+
+            context = browser.new_context(record_video_dir=video_dir)
+            context.on("page", track_video)
+
+            try:
+                if tracing_mode != "off":
+                    context.tracing.start(
+                        screenshots=True,
+                        snapshots=True,
+                        sources=True,
+                    )
+                    tracing_started = True
+
+                yield context
+
+            finally:
+                setup_report = getattr(request.node, "rep_setup", None)
+                call_report = getattr(request.node, "rep_call", None)
+
+                test_failed = any(
+                    report is not None and report.failed
+                    for report in (setup_report, call_report)
+                )
+
+                keep_screenshot = (
+                    screenshot_mode == "on"
+                    or (
+                        screenshot_mode == "only-on-failure"
+                        and test_failed
+                    )
+                )
+                keep_trace = (
+                    tracing_mode == "on"
+                    or (
+                        tracing_mode == "retain-on-failure"
+                        and test_failed
+                    )
+                )
+                keep_video = (
+                    video_mode == "on"
+                    or (
+                        video_mode == "retain-on-failure"
+                        and test_failed
+                    )
+                )
+
+                try:
+                    try:
+                        if keep_screenshot:
+                            screenshot_dir = reports_dir / "screenshots"
+                            screenshot_dir.mkdir(parents=True, exist_ok=True)
+
+                            for index, open_page in enumerate(context.pages):
+                                if open_page.is_closed():
+                                    continue
+
+                                screenshot_path = screenshot_dir / (
+                                    f"{artifact_name}_{index}.png"
+                                )
+                                open_page.screenshot(path=screenshot_path)
+
+                              
+
+                    finally:
+                        if tracing_started:
+                            if keep_trace:
+                                trace_dir = reports_dir / "traces"
+                                trace_dir.mkdir(parents=True, exist_ok=True)
+
+                                trace_path = trace_dir / (
+                                    f"{artifact_name}_trace.zip"
+                                )
+                                context.tracing.stop(path=trace_path)
+
+                                
+                            else:
+                                context.tracing.stop()
+
+                finally:
+                    # Videos are finalized when the context closes.
+                    context.close()
+
+                    for video in videos:
+                      if not keep_video:
+                       video.delete()
+                     
+                    
+
+        finally:
+            browser.close()
+
+
+@pytest.fixture
+def page(request, browser_context):
+    """Open the configured application for each test."""
+    test_page = browser_context.new_page()
+    test_page.goto(request.config.getoption("base_url"))
+    yield test_page
